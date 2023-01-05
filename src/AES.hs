@@ -14,68 +14,10 @@ module AES
   )
 where
 
-import Data.Bits
-import Data.List
-import Data.Word
-import Text.Printf
-
----- Key data type and supporting functions ----------------------------------------------------------------------------
-
-data Key
-  = Key128 Word64 Word64
-  | Key192 Word64 Word64 Word64
-  | Key256 Word64 Word64 Word64 Word64
-  deriving (Show, Eq)
-
-makeKey :: [Word8] -> Maybe Key
-makeKey l
-  | length l == 16 = Just $ Key128 (packWord64 l0) (packWord64 l1)
-  | length l == 24 = Just $ Key192 (packWord64 l0) (packWord64 l1) (packWord64 l2)
-  | length l == 32 = Just $ Key256 (packWord64 l0) (packWord64 l1) (packWord64 l2) (packWord64 l3)
-  | otherwise = Nothing
-  where
-    l0 = take 8 (drop 0  l)
-    l1 = take 8 (drop 8  l)
-    l2 = take 8 (drop 16 l)
-    l3 = take 8 (drop 24 l)
-
-showKey :: Key -> String
-showKey (Key128 w0 w1)       = printf "%016x%016x"           w0 w1
-showKey (Key192 w0 w1 w2)    = printf "%016x%016x%016x"      w0 w1 w2
-showKey (Key256 w0 w1 w2 w3) = printf "%016x%016x%016x%016x" w0 w1 w2 w3
-
-
----- Block data type and supporting functions --------------------------------------------------------------------------
-
-data Block = Block Word64 Word64 deriving (Show, Eq)
-
-makeBlock :: [Word8] -> Maybe Block
-makeBlock l
-  | length l == 16 = Just $ Block (packWord64 (take 8 l)) (packWord64 (drop 8 l))
-  | otherwise = Nothing
-
-showBlock :: Block -> String
-showBlock (Block w0 w1) = printf "%016x%016x" w0 w1
-
----- Helper functions --------------------------------------------------------------------------------------------------
-
-packWord64 :: [Word8] -> Word64
-packWord64 l =
-  foldl setBit 0 (map snd $ filter fst $ zip bits (reverse [0 .. 63]))
-  where
-    bits = concatMap (\x -> map (testBit x) (reverse [0 .. 7])) l
-
-unpackWord64 :: Word64 -> [Word8]
-unpackWord64 x = [fromIntegral $ shiftR x b | b <- reverse [0, 8, 16, 24, 32, 40, 48, 56]]
-
-groupsOf :: Int -> [a] -> [[a]]
-groupsOf n = takeWhile (not . null) . unfoldr (Just . splitAt n)
-
-addDebugStr :: (a, String) -> String -> (a, String)
-addDebugStr (state, recDebug) newDebug = (state, newDebug ++ recDebug)
-
-showBytes :: [Word8] -> String
-showBytes = concatMap (printf "%02x")
+import Data.Bits (setBit, shift, shiftR, testBit, xor)
+import Data.List (transpose, unfoldr)
+import Data.Word (Word64, Word8)
+import Text.Printf (printf)
 
 ---- AES Magic Constants -----------------------------------------------------------------------------------------------
 
@@ -132,6 +74,43 @@ rcon =
     [0x1b, 0x00, 0x00, 0x00],
     [0x36, 0x00, 0x00, 0x00]
   ] :: [[Word8]]
+
+---- Key data type and supporting functions ----------------------------------------------------------------------------
+
+data Key
+  = Key128 Word64 Word64
+  | Key192 Word64 Word64 Word64
+  | Key256 Word64 Word64 Word64 Word64
+  deriving (Show, Eq)
+
+makeKey :: [Word8] -> Maybe Key
+makeKey l
+  | length l == 16 = Just $ Key128 (packWord64 l0) (packWord64 l1)
+  | length l == 24 = Just $ Key192 (packWord64 l0) (packWord64 l1) (packWord64 l2)
+  | length l == 32 = Just $ Key256 (packWord64 l0) (packWord64 l1) (packWord64 l2) (packWord64 l3)
+  | otherwise = Nothing
+  where
+    l0 = take 8 (drop 0  l)
+    l1 = take 8 (drop 8  l)
+    l2 = take 8 (drop 16 l)
+    l3 = take 8 (drop 24 l)
+
+showKey :: Key -> String
+showKey (Key128 w0 w1)       = printf "%016x%016x"           w0 w1
+showKey (Key192 w0 w1 w2)    = printf "%016x%016x%016x"      w0 w1 w2
+showKey (Key256 w0 w1 w2 w3) = printf "%016x%016x%016x%016x" w0 w1 w2 w3
+
+---- Block data type and supporting functions --------------------------------------------------------------------------
+
+data Block = Block Word64 Word64 deriving (Show, Eq)
+
+makeBlock :: [Word8] -> Maybe Block
+makeBlock l
+  | length l == 16 = Just $ Block (packWord64 (take 8 l)) (packWord64 (drop 8 l))
+  | otherwise = Nothing
+
+showBlock :: Block -> String
+showBlock (Block w0 w1) = printf "%016x%016x" w0 w1
 
 ---- Galois Field functions --------------------------------------------------------------------------------------------
 
@@ -403,5 +382,25 @@ eqInvCipherDebugRec state key depth
     plainText = addRoundKey is_row key 0
     invRoundNum = (length key `div` 4) - 2 - depth
     newDepth = depth + 1
+
+---- Helper functions --------------------------------------------------------------------------------------------------
+
+packWord64 :: [Word8] -> Word64
+packWord64 l =
+  foldl setBit 0 (map snd $ filter fst $ zip bits (reverse [0 .. 63]))
+  where
+    bits = concatMap (\x -> map (testBit x) (reverse [0 .. 7])) l
+
+unpackWord64 :: Word64 -> [Word8]
+unpackWord64 x = [fromIntegral $ shiftR x b | b <- reverse [0, 8, 16, 24, 32, 40, 48, 56]]
+
+groupsOf :: Int -> [a] -> [[a]]
+groupsOf n = takeWhile (not . null) . unfoldr (Just . splitAt n)
+
+addDebugStr :: (a, String) -> String -> (a, String)
+addDebugStr (state, recDebug) newDebug = (state, newDebug ++ recDebug)
+
+showBytes :: [Word8] -> String
+showBytes = concatMap (printf "%02x")
 
 ------------------------------------------------------------------------------------------------------------------------
