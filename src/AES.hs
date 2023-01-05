@@ -43,14 +43,14 @@ makeKey l
   | length l == 32 = Just (Key256 (packWord64 l0) (packWord64 l1) (packWord64 l2) (packWord64 l3))
   | otherwise = Nothing
   where
-    l0 = take 8 (drop 0 l)
-    l1 = take 8 (drop 8 l)
+    l0 = take 8 (drop 0  l)
+    l1 = take 8 (drop 8  l)
     l2 = take 8 (drop 16 l)
     l3 = take 8 (drop 24 l)
 
 showKey :: Key -> String
-showKey (Key128 w0 w1) = printf "%016x%016x" w0 w1
-showKey (Key192 w0 w1 w2) = printf "%016x%016x%016x" w0 w1 w2
+showKey (Key128 w0 w1)       = printf "%016x%016x"           w0 w1
+showKey (Key192 w0 w1 w2)    = printf "%016x%016x%016x"      w0 w1 w2
 showKey (Key256 w0 w1 w2 w3) = printf "%016x%016x%016x%016x" w0 w1 w2 w3
 
 
@@ -75,10 +75,7 @@ packWord64 l =
     bits = concatMap (\x -> [testBit x b | b <- reverse [0 .. 7]]) l
 
 unpackWord64 :: Word64 -> [Word8]
-unpackWord64 x = [fromIntegral (getByte b x) | b <- reverse [0, 8, 16, 24, 32, 40, 48, 56]]
-
-getByte :: Int -> Word64 -> Word8
-getByte b num = fromIntegral $ shiftR num b
+unpackWord64 x = [fromIntegral $ shiftR x b | b <- reverse [0, 8, 16, 24, 32, 40, 48, 56]]
 
 groupsOf :: Int -> [a] -> [[a]]
 groupsOf n = takeWhile (not . null) . unfoldr (Just . splitAt n)
@@ -119,8 +116,10 @@ ffAdd = xor
 
 xtime :: Word8 -> Word8
 xtime b
-  | testBit b 7 = shift b 1
-  | otherwise = ffAdd (shift b 1) 0x1b
+  | testBit b 7 = shifted
+  | otherwise = ffAdd shifted 0x1b
+  where
+    shifted = shift b 1
 
 ffMultiply :: Word8 -> Word8 -> Word8
 ffMultiply b0 b1 = ffMultiplyRec b0 b1 0 0
@@ -128,8 +127,10 @@ ffMultiply b0 b1 = ffMultiplyRec b0 b1 0 0
 ffMultiplyRec :: Word8 -> Word8 -> Word8 -> Int -> Word8
 ffMultiplyRec _ _ res 8 = res
 ffMultiplyRec b0 b1 res depth
-  | testBit b1 depth = ffMultiplyRec (xtime b0) b1 (ffAdd res b0) (depth + 1)
-  | otherwise = ffMultiplyRec (xtime b0) b1 res (depth + 1)
+  | testBit b1 depth = ffMultiplyRec doubled b1 (ffAdd res b0) (depth + 1)
+  | otherwise = ffMultiplyRec doubled b1 res (depth + 1)
+  where
+    doubled = xtime b0
 
 ---- AES subfunctions --------------------------------------------------------------------------------------------------
 
@@ -145,25 +146,18 @@ invSubByte b = invSubBox !! fromIntegral b
 invSubBytes :: [Word8] -> [Word8]
 invSubBytes = map invSubByte
 
--- TODO use zipwith on ffMultiply ??
 mixColumn :: [Word8] -> [Word8]
-mixColumn col =
-  [ foldr ffAdd (ffMultiply (col !! 0) 0x2) [ffMultiply (col !! 1) 0x3, ffMultiply (col !! 2) 0x1, ffMultiply (col !! 3) 0x1],
-    foldr ffAdd (ffMultiply (col !! 0) 0x1) [ffMultiply (col !! 1) 0x2, ffMultiply (col !! 2) 0x3, ffMultiply (col !! 3) 0x1],
-    foldr ffAdd (ffMultiply (col !! 0) 0x1) [ffMultiply (col !! 1) 0x1, ffMultiply (col !! 2) 0x2, ffMultiply (col !! 3) 0x3],
-    foldr ffAdd (ffMultiply (col !! 0) 0x3) [ffMultiply (col !! 1) 0x1, ffMultiply (col !! 2) 0x1, ffMultiply (col !! 3) 0x2]
-  ]
+mixColumn col = map (foldl ffAdd 0 . zipWith ffMultiply col) magicNums
+  where
+    magicNums = take 4 (iterate (`shiftRow` 3) [0x2, 0x3, 0x1, 0x1])
 
 mixColumns :: [Word8] -> [Word8]
 mixColumns state = concatMap mixColumn (groupsOf 4 state)
 
 invMixColumn :: [Word8] -> [Word8]
-invMixColumn col =
-  [ foldr ffAdd (ffMultiply (col !! 0) 0xe) [ffMultiply (col !! 1) 0xb, ffMultiply (col !! 2) 0xd, ffMultiply (col !! 3) 0x9],
-    foldr ffAdd (ffMultiply (col !! 0) 0x9) [ffMultiply (col !! 1) 0xe, ffMultiply (col !! 2) 0xb, ffMultiply (col !! 3) 0xd],
-    foldr ffAdd (ffMultiply (col !! 0) 0xd) [ffMultiply (col !! 1) 0x9, ffMultiply (col !! 2) 0xe, ffMultiply (col !! 3) 0xb],
-    foldr ffAdd (ffMultiply (col !! 0) 0xb) [ffMultiply (col !! 1) 0xd, ffMultiply (col !! 2) 0x9, ffMultiply (col !! 3) 0xe]
-  ]
+invMixColumn col = map (foldl ffAdd 0 . zipWith ffMultiply col) magicNums
+  where
+    magicNums = take 4 (iterate (`shiftRow` 3) [0xe, 0xb, 0xd, 0x9])
 
 invMixColumns :: [Word8] -> [Word8]
 invMixColumns state = concatMap invMixColumn (groupsOf 4 state)
@@ -175,14 +169,13 @@ shiftRow row i = shiftRow (tail row ++ [head row]) (i - 1)
 rotWord :: [Word8] -> [Word8]
 rotWord w = shiftRow w 1
 
--- TODO could probably use funcion composition
 shiftRows :: [Word8] -> [Word8]
 shiftRows state =
   concat
     ( transpose
         ( zipWith
             shiftRow
-            (groupsOf 4 (concat (transpose (groupsOf 4 state))))
+            (transpose (groupsOf 4 state))
             [0, 1, 2, 3]
         )
     )
@@ -193,7 +186,7 @@ invShiftRows state =
     ( transpose
         ( zipWith
             shiftRow
-            (groupsOf 4 (concat (transpose (groupsOf 4 state))))
+            (transpose (groupsOf 4 state))
             [0, 3, 2, 1]
         )
     )
@@ -208,10 +201,11 @@ keyExpansion key =
     (length keyBytes `div` 4)
   where
     keyBytes = case key of
-      Key128 w0 w1 -> concat [unpackWord64 w | w <- [w0, w1]]
-      Key192 w0 w1 w2 -> concat [unpackWord64 w | w <- [w0, w1, w2]]
+      Key128 w0 w1       -> concat [unpackWord64 w | w <- [w0, w1]]
+      Key192 w0 w1 w2    -> concat [unpackWord64 w | w <- [w0, w1, w2]]
       Key256 w0 w1 w2 w3 -> concat [unpackWord64 w | w <- [w0, w1, w2, w3]]
 
+-- TODO the newlist var looks a tad messy
 keyExpansionRec :: [[Word8]] -> Int -> Int -> [[Word8]]
 keyExpansionRec key 4 44 = key
 keyExpansionRec key 6 52 = key
@@ -235,7 +229,9 @@ keyExpansionEIC key = front ++ map invMixColumns middle ++ rear
     middle = drop 4 (take (length dw - 4) dw)
 
 addRoundKey :: [Word8] -> [[Word8]] -> Int -> [Word8]
-addRoundKey state key roundNum = zipWith ffAdd state (drop (roundNum * 4 * 4) (concat key))
+addRoundKey state key roundNum = zipWith ffAdd state roundKey
+  where
+    roundKey = drop (roundNum * 16) (concat key)
 
 ---- AES cipher --------------------------------------------------------------------------------------------------------
 
@@ -276,7 +272,7 @@ cipherDebugRec state key depth
     s_row = shiftRows s_box
     m_col = mixColumns s_row
     buildStr =
-      printf "round[%2d].start     " newDepth ++ showBytes state ++ "\n" ++ 
+      printf "round[%2d].start     " newDepth ++ showBytes state ++ "\n" ++
       printf "round[%2d].s_box     " newDepth ++ showBytes s_box ++ "\n" ++
       printf "round[%2d].s_row     " newDepth ++ showBytes s_row ++ "\n" ++
       condStr
@@ -331,7 +327,7 @@ invCipherDebugRec state key depth
     is_box = invSubBytes is_row
     ik_add = addRoundKey is_box key invRoundNum
     buildStr =
-      printf "round[%2d].istart    " newDepth ++ showBytes state ++ "\n" ++ 
+      printf "round[%2d].istart    " newDepth ++ showBytes state ++ "\n" ++
       printf "round[%2d].is_row    " newDepth ++ showBytes is_row ++ "\n" ++
       printf "round[%2d].is_box    " newDepth ++ showBytes is_box ++ "\n" ++
       printf "round[%2d].ik_sch    " newDepth ++ showBytes (groupsOf 16 (concat key) !! invRoundNum) ++ "\n" ++
