@@ -1,10 +1,8 @@
 module AES
   ( Key,
     makeKey,
-    showKey,
     Block,
     makeBlock,
-    showBlock,
     cipher,
     invCipher,
     eqInvCipher,
@@ -19,7 +17,7 @@ import Data.List (transpose, unfoldr)
 import Data.Word (Word64, Word8)
 import Text.Printf (printf)
 
----- AES Magic Constants -----------------------------------------------------------------------------------------------
+---- AES Magic Constants -------------------------------------------------------
 
 subBox :: [Word8]
 subBox = [
@@ -75,44 +73,54 @@ rcon =
     [0x36, 0x00, 0x00, 0x00]
   ] :: [[Word8]]
 
----- Key data type and supporting functions ----------------------------------------------------------------------------
+---- Key data type, Block data type and supporting functions -------------------
+
+class CryptPrim a where
+  makeBytes :: a -> [Word8]
 
 data Key
   = Key128 Word64 Word64
   | Key192 Word64 Word64 Word64
   | Key256 Word64 Word64 Word64 Word64
-  deriving (Show, Eq)
+  deriving (Eq)
+
+instance Show Key where
+  show (Key128 w0 w1) = printf "%016x%016x" w0 w1
+  show (Key192 w0 w1 w2) = printf "%016x%016x%016x" w0 w1 w2
+  show (Key256 w0 w1 w2 w3) = printf "%016x%016x%016x%016x" w0 w1 w2 w3
+
+instance CryptPrim Key where
+  makeBytes key = concatMap unPkW64 keyBytes
+    where
+      keyBytes = case key of
+        Key128 w0 w1 -> [w0, w1]
+        Key192 w0 w1 w2 -> [w0, w1, w2]
+        Key256 w0 w1 w2 w3 -> [w0, w1, w2, w3]
 
 makeKey :: [Word8] -> Maybe Key
 makeKey l
-  | length l == 16 = Just $ Key128 (packWord64 l0) (packWord64 l1)
-  | length l == 24 = Just $ Key192 (packWord64 l0) (packWord64 l1) (packWord64 l2)
-  | length l == 32 = Just $ Key256 (packWord64 l0) (packWord64 l1) (packWord64 l2) (packWord64 l3)
+  | length l == 16 = Just $ Key128 (head ls) (ls !! 1)
+  | length l == 24 = Just $ Key192 (head ls) (ls !! 1) (ls !! 2)
+  | length l == 32 = Just $ Key256 (head ls) (ls !! 1) (ls !! 2) (ls !! 3)
   | otherwise = Nothing
   where
-    l0 = take 8 (drop 0  l)
-    l1 = take 8 (drop 8  l)
-    l2 = take 8 (drop 16 l)
-    l3 = take 8 (drop 24 l)
+    ls = map pkW64 $ groupsOf 8 l
 
-showKey :: Key -> String
-showKey (Key128 w0 w1)       = printf "%016x%016x"           w0 w1
-showKey (Key192 w0 w1 w2)    = printf "%016x%016x%016x"      w0 w1 w2
-showKey (Key256 w0 w1 w2 w3) = printf "%016x%016x%016x%016x" w0 w1 w2 w3
+data Block = Block Word64 Word64 deriving (Eq)
 
----- Block data type and supporting functions --------------------------------------------------------------------------
+instance Show Block where
+  show (Block w0 w1) = printf "%016x%016x" w0 w1
 
-data Block = Block Word64 Word64 deriving (Show, Eq)
+instance CryptPrim Block where
+  makeBytes (Block w0 w1) = concatMap unPkW64 [w0, w1]
 
 makeBlock :: [Word8] -> Maybe Block
 makeBlock l
-  | length l == 16 = Just $ Block (packWord64 (take 8 l)) (packWord64 (drop 8 l))
+  | length l == 16 = Just $ Block (pkW64 (take 8 l)) (pkW64 (drop 8 l))
   | otherwise = Nothing
 
-showBlock :: Block -> String
-showBlock (Block w0 w1) = printf "%016x%016x" w0 w1
 
----- Galois Field functions --------------------------------------------------------------------------------------------
+---- Galois Field functions ----------------------------------------------------
 
 ffAdd :: Word8 -> Word8 -> Word8
 ffAdd = xor
@@ -125,136 +133,120 @@ xtime b
     shifted = shift b 1
 
 ffMultiply :: Word8 -> Word8 -> Word8
-ffMultiply b0 b1 = ffMultiplyRec b0 b1 0 0
-
-ffMultiplyRec :: Word8 -> Word8 -> Word8 -> Int -> Word8
-ffMultiplyRec _ _ res 8 = res
-ffMultiplyRec b0 b1 res depth
-  | testBit b1 depth = ffMultiplyRec doubled b1 (ffAdd res b0) (depth + 1)
-  | otherwise = ffMultiplyRec doubled b1 res (depth + 1)
+ffMultiply b0 b1 = foldl (flip mulOne) 0 $ zip b0s bits
   where
-    doubled = xtime b0
+    bits = map (testBit b1) [0 .. 7]
+    b0s = iterate xtime b0
+    mulOne (b0d, True) = ffAdd b0d
+    mulOne (_, _) = id
 
----- AES subfunctions --------------------------------------------------------------------------------------------------
+---- AES subfunctions ----------------------------------------------------------
 
 subByte :: Word8 -> Word8
-subByte b = subBox !! fromIntegral b
-
-subBytes :: [Word8] -> [Word8]
-subBytes = map subByte
+subByte = (subBox !!) . fromIntegral
 
 invSubByte :: Word8 -> Word8
-invSubByte b = invSubBox !! fromIntegral b
+invSubByte = (invSubBox !!) . fromIntegral
 
-invSubBytes :: [Word8] -> [Word8]
-invSubBytes = map invSubByte
-
-mixColumn :: [Word8] -> [Word8]
-mixColumn col = map (foldl ffAdd 0 . zipWith ffMultiply col) magicNums
+mixColumnsGen :: [Word8] -> [Word8] -> [Word8]
+mixColumnsGen offsets = concatMap mixCol . groupsOf 4
   where
-    magicNums = take 4 (iterate (`shiftRow` 3) [0x2, 0x3, 0x1, 0x1])
+    magicNums = take 4 $ iterate (shiftRow 3) offsets
+    mixCol col = map (foldl ffAdd 0 . zipWith ffMultiply col) magicNums
 
 mixColumns :: [Word8] -> [Word8]
-mixColumns state = concatMap mixColumn (groupsOf 4 state)
-
-invMixColumn :: [Word8] -> [Word8]
-invMixColumn col = map (foldl ffAdd 0 . zipWith ffMultiply col) magicNums
-  where
-    magicNums = take 4 (iterate (`shiftRow` 3) [0xe, 0xb, 0xd, 0x9])
+mixColumns = mixColumnsGen [0x2, 0x3, 0x1, 0x1]
 
 invMixColumns :: [Word8] -> [Word8]
-invMixColumns state = concatMap invMixColumn (groupsOf 4 state)
+invMixColumns = mixColumnsGen [0xe, 0xb, 0xd, 0x9]
 
-shiftRow :: [Word8] -> Int -> [Word8]
-shiftRow row 0 = row
-shiftRow row i = shiftRow (tail row ++ [head row]) (i - 1)
+shiftRow :: Int -> [Word8] -> [Word8]
+shiftRow = drop <> take
 
 rotWord :: [Word8] -> [Word8]
-rotWord w = shiftRow w 1
+rotWord = shiftRow 1
+
+shiftRowsGen :: [Int] -> [Word8] -> [Word8]
+shiftRowsGen offsets state = concat . transpose $
+  zipWith shiftRow offsets $ transpose $ groupsOf 4 state
 
 shiftRows :: [Word8] -> [Word8]
-shiftRows state = concat $ transpose $ zipWith shiftRow (transpose (groupsOf 4 state)) [0, 1, 2, 3]
+shiftRows = shiftRowsGen [0, 1, 2, 3]
 
 invShiftRows :: [Word8] -> [Word8]
-invShiftRows state = concat $ transpose $ zipWith shiftRow (transpose (groupsOf 4 state)) [0, 3, 2, 1]
+invShiftRows = shiftRowsGen [0, 3, 2, 1]
 
----- Key expansion functions -------------------------------------------------------------------------------------------
+---- Key expansion functions ---------------------------------------------------
 
 keyExpansion :: Key -> [[Word8]]
-keyExpansion key =
-  keyExpansionRec
-    (groupsOf 4 keyBytes)
-    (length keyBytes `div` 4)
-    (length keyBytes `div` 4)
+keyExpansion key = keyExpansionRec (groupsOf 4 $ makeBytes key) nk nk
   where
-    keyBytes = case key of
-      Key128 w0 w1       -> concat [unpackWord64 w | w <- [w0, w1]]
-      Key192 w0 w1 w2    -> concat [unpackWord64 w | w <- [w0, w1, w2]]
-      Key256 w0 w1 w2 w3 -> concat [unpackWord64 w | w <- [w0, w1, w2, w3]]
+    nk = case key of
+      Key128 {} -> 4
+      Key192 {} -> 6
+      Key256 {} -> 8
 
 keyExpansionRec :: [[Word8]] -> Int -> Int -> [[Word8]]
 keyExpansionRec key 4 44 = key
 keyExpansionRec key 6 52 = key
 keyExpansionRec key 8 60 = key
-keyExpansionRec w nk depth = keyExpansionRec newList nk (depth + 1)
+keyExpansionRec w nk depth = keyExpansionRec (w ++ [newByte]) nk (depth + 1)
   where
     firstKey = w !! (depth - nk)
     lastKey = w !! (depth - 1)
     thisRcon = rcon !! ((depth `div` nk) - 1)
-    newList
-      | (depth `mod` nk) == 0 = w ++ [foldl (zipWith ffAdd) (subBytes $ rotWord lastKey) [thisRcon, firstKey]]
-      | (nk > 6) && ((depth `mod` nk) == 4) = w ++ [zipWith ffAdd (subBytes lastKey) firstKey]
-      | otherwise = w ++ [zipWith ffAdd lastKey firstKey]
+    newByte
+      | (depth `mod` nk) == 0 = foldl (zipWith ffAdd) (map subByte $ rotWord lastKey) [thisRcon, firstKey]
+      | (nk > 6) && ((depth `mod` nk) == 4) = zipWith ffAdd (map subByte lastKey) firstKey
+      | otherwise = zipWith ffAdd lastKey firstKey
 
 keyExpansionEIC :: Key -> [[Word8]]
-keyExpansionEIC key = front ++ map invMixColumns middle ++ rear
+keyExpansionEIC key = f ++ map invMixColumns m ++ e
   where
-    dw = keyExpansion key
-    front = take 4 dw
-    rear = drop (length dw - 4) dw
-    middle = drop 4 (take (length dw - 4) dw)
+    fme = keyExpansion key
+    (f, me) = splitAt 4 fme
+    (m, e) = splitAt (length me - 4) me
 
 addRoundKey :: [Word8] -> [[Word8]] -> Int -> [Word8]
 addRoundKey state key roundNum = zipWith ffAdd state roundKey
   where
     roundKey = drop (roundNum * 16) (concat key)
 
----- AES cipher --------------------------------------------------------------------------------------------------------
+---- AES cipher ----------------------------------------------------------------
 
 cipher :: Key -> Block -> [Word8]
-cipher key (Block w0 w1) = cipherRec roundKey expKey 0
+cipher key blk = cipherRec roundKey expKey 0
   where
     expKey = keyExpansion key
-    roundKey = addRoundKey plainText expKey 0
-    plainText = unpackWord64 w0 ++ unpackWord64 w1
+    roundKey = addRoundKey (makeBytes blk) expKey 0
 
 cipherRec :: [Word8] -> [[Word8]] -> Int -> [Word8]
 cipherRec state key depth
   | ((length key `div` 4) - 2) == depth = addRoundKey s_row key (depth + 1)
   | otherwise = cipherRec (addRoundKey m_col key (depth + 1)) key (depth + 1)
   where
-    s_box = subBytes state
+    s_box = map subByte state
     s_row = shiftRows s_box
     m_col = mixColumns s_row
 
----- AES debug cipher --------------------------------------------------------------------------------------------------
+---- AES debug cipher ----------------------------------------------------------
 
 cipherDebug :: Key -> Block -> String
-cipherDebug key (Block w0 w1) =
+cipherDebug key blk =
   "round[ 0].input     " ++ showBytes plainText ++ "\n" ++
   "round[ 0].k_sch     " ++ showBytes (head (groupsOf 16 (concat expKey))) ++ "\n" ++
   snd recOutput
   where
     expKey = keyExpansion key
     recOutput = cipherDebugRec (addRoundKey plainText expKey 0) expKey 0
-    plainText = unpackWord64 w0 ++ unpackWord64 w1
+    plainText = makeBytes blk
 
 cipherDebugRec :: [Word8] -> [[Word8]] -> Int -> ([Word8], String)
 cipherDebugRec state key depth
   | ((length key `div` 4) - 2) == depth = (cipherText, buildStr)
   | otherwise = addDebugStr recCipherTuple buildStr
   where
-    s_box = subBytes state
+    s_box = map subByte state
     s_row = shiftRows s_box
     m_col = mixColumns s_row
     buildStr =
@@ -273,14 +265,13 @@ cipherDebugRec state key depth
     cipherText = addRoundKey s_row key ((length key `div` 4) - 1)
     newDepth = depth + 1
 
----- AES inverse cipher ------------------------------------------------------------------------------------------------
+---- AES inverse cipher --------------------------------------------------------
 
 invCipher :: Key -> Block -> [Word8]
-invCipher key (Block w0 w1) = invCipherRec roundKey expKey 0
+invCipher key blk = invCipherRec roundKey expKey 0
   where
     expKey = keyExpansion key
-    roundKey = addRoundKey cipherText expKey ((length expKey `div` 4) - 1)
-    cipherText = unpackWord64 w0 ++ unpackWord64 w1
+    roundKey = addRoundKey (makeBytes blk) expKey ((length expKey `div` 4) - 1)
 
 invCipherRec :: [Word8] -> [[Word8]] -> Int -> [Word8]
 invCipherRec state key depth
@@ -288,20 +279,20 @@ invCipherRec state key depth
   | otherwise = invCipherRec (invMixColumns (addRoundKey is_box key invRoundNum)) key (depth + 1)
   where
     is_row = invShiftRows state
-    is_box = invSubBytes is_row
+    is_box = map invSubByte is_row
     invRoundNum = ((length key `div` 4) - 2) - depth
 
----- AES inverse debug cipher ------------------------------------------------------------------------------------------
+---- AES inverse debug cipher --------------------------------------------------
 
 invCipherDebug :: Key -> Block -> String
-invCipherDebug key (Block w0 w1) =
+invCipherDebug key blk =
   "round[ 0].iinput    " ++ showBytes cipherText ++ "\n" ++
   "round[ 0].ik_sch    " ++ showBytes (groupsOf 16 (concat expKey) !! invRoundNum) ++ "\n" ++
   snd recOutput
   where
     expKey = keyExpansion key
     recOutput = invCipherDebugRec (addRoundKey cipherText expKey invRoundNum) expKey 0
-    cipherText = unpackWord64 w0 ++ unpackWord64 w1
+    cipherText = makeBytes blk
     invRoundNum = (length expKey `div` 4) - 1
 
 invCipherDebugRec :: [Word8] -> [[Word8]] -> Int -> ([Word8], String)
@@ -310,7 +301,7 @@ invCipherDebugRec state key depth
   | otherwise = addDebugStr recInvCipherTuple buildStr
   where
     is_row = invShiftRows state
-    is_box = invSubBytes is_row
+    is_box = map invSubByte is_row
     ik_add = addRoundKey is_box key invRoundNum
     buildStr =
       printf "round[%2d].istart    " newDepth ++ showBytes state ++ "\n" ++
@@ -326,36 +317,35 @@ invCipherDebugRec state key depth
     invRoundNum = (length key `div` 4) - 2 - depth
     newDepth = depth + 1
 
----- AES equivalent inverse cipher -------------------------------------------------------------------------------------
+---- AES equivalent inverse cipher ---------------------------------------------
 
 eqInvCipher :: Key -> Block -> [Word8]
-eqInvCipher key (Block w0 w1) = eqInvCipherRec roundKey expKey 0
+eqInvCipher key blk = eqInvCipherRec roundKey expKey 0
   where
     expKey = keyExpansionEIC key
-    roundKey = addRoundKey cipherText expKey ((length expKey `div` 4) - 1)
-    cipherText = unpackWord64 w0 ++ unpackWord64 w1
+    roundKey = addRoundKey (makeBytes blk) expKey ((length expKey `div` 4) - 1)
 
 eqInvCipherRec :: [Word8] -> [[Word8]] -> Int -> [Word8]
 eqInvCipherRec state key depth
   | ((length key `div` 4) - 2) == depth = addRoundKey is_row key 0
   | otherwise = eqInvCipherRec (addRoundKey is_col key invRoundNum) key (depth + 1)
   where
-    is_box = invSubBytes state
+    is_box = map invSubByte state
     is_row = invShiftRows is_box
     is_col = invMixColumns is_row
     invRoundNum = (length key `div` 4) - 2 - depth
 
----- AES equivalent inverse debug cipher -------------------------------------------------------------------------------
+---- AES equivalent inverse debug cipher ---------------------------------------
 
 eqInvCipherDebug :: Key -> Block -> String
-eqInvCipherDebug key (Block w0 w1) =
+eqInvCipherDebug key blk =
   "round[ 0].iinput    " ++ showBytes cipherText ++ "\n" ++
   "round[ 0].ik_sch    " ++ showBytes (groupsOf 16 (concat expKey) !! invRoundNum) ++ "\n" ++
   snd recOutput
   where
     expKey = keyExpansionEIC key
     recOutput = eqInvCipherDebugRec (addRoundKey cipherText expKey invRoundNum) expKey 0
-    cipherText = unpackWord64 w0 ++ unpackWord64 w1
+    cipherText = makeBytes blk
     invRoundNum = (length expKey `div` 4) - 1
 
 eqInvCipherDebugRec :: [Word8] -> [[Word8]] -> Int -> ([Word8], String)
@@ -363,7 +353,7 @@ eqInvCipherDebugRec state key depth
   | invRoundNum == 0 = (plainText, buildStr)
   | otherwise = addDebugStr recEqInvCipherTuple buildStr
   where
-    is_box = invSubBytes state
+    is_box = map invSubByte state
     is_row = invShiftRows is_box
     im_col = invMixColumns is_row
     buildStr =
@@ -383,16 +373,16 @@ eqInvCipherDebugRec state key depth
     invRoundNum = (length key `div` 4) - 2 - depth
     newDepth = depth + 1
 
----- Helper functions --------------------------------------------------------------------------------------------------
+---- Helper functions ----------------------------------------------------------
 
-packWord64 :: [Word8] -> Word64
-packWord64 l =
-  foldl setBit 0 (map snd $ filter fst $ zip bits (reverse [0 .. 63]))
+pkW64 :: [Word8] -> Word64
+pkW64 l =
+  foldl setBit 0 (map snd $ filter fst $ zip bits [63, 62 .. 0])
   where
-    bits = concatMap (\x -> map (testBit x) (reverse [0 .. 7])) l
+    bits = concatMap (\x -> map (testBit x) [7, 6 .. 0]) l
 
-unpackWord64 :: Word64 -> [Word8]
-unpackWord64 x = [fromIntegral $ shiftR x b | b <- reverse [0, 8, 16, 24, 32, 40, 48, 56]]
+unPkW64 :: Word64 -> [Word8]
+unPkW64 x = [fromIntegral $ shiftR x b | b <- [56, 48 .. 0]]
 
 groupsOf :: Int -> [a] -> [[a]]
 groupsOf n = takeWhile (not . null) . unfoldr (Just . splitAt n)
@@ -402,5 +392,3 @@ addDebugStr (state, recDebug) newDebug = (state, newDebug ++ recDebug)
 
 showBytes :: [Word8] -> String
 showBytes = concatMap (printf "%02x")
-
-------------------------------------------------------------------------------------------------------------------------
