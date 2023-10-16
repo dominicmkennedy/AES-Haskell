@@ -1,33 +1,28 @@
 cabal-version:      3.0
 name:               AES-Haskell
 version:            0.1.0.0
-synopsis:
 homepage:           github.com/dominicmkennedy/AES-Haskell
 license:            GPL-3.0-only
 license-file:       LICENSE
 author:             dominicmkennedy
 maintainer:         dominicmkennedy@gmail.com
-extra-source-files:
-    CHANGELOG.md
-    README.md
+extra-source-files: README.md
 
 library
     exposed-modules:  AES
-    build-depends:
-      base >=4.15 && <5,
-    ghc-options:
-      -Wall
+    build-depends:    base >=4.15 && <5,
+    ghc-options:      -Wall
     hs-source-dirs:   src
     default-language: Haskell2010
+    other-modules:    Types, Constants
 
 test-suite AES-Haskell-test
     default-language: Haskell2010
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          AESTest.hs
+    ghc-options:      -Wall
     build-depends:
       base >=4.15 && <5,
       hspec ^>=2.10.0,
       AES-Haskell
-    ghc-options:
-      -Wall
