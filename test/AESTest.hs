@@ -1,6 +1,6 @@
 module Main where
 
-import AES (makeKey, makeBlock, cipher, invCipher, eqInvCipher, cipherDebug, invCipherDebug, eqInvCipherDebug)
+import AES (Block, CryptPrim (make), Key, cipher, cipherDebug, eqInvCipher, eqInvCipherDebug, invCipher, invCipherDebug)
 import Data.Maybe (fromJust)
 import Data.Word (Word8)
 import Test.Hspec (Spec, describe, hspec, it, shouldBe)
@@ -11,106 +11,106 @@ import Text.Printf (printf)
 makeKeySpec :: Spec
 makeKeySpec = describe "makeKey" $ do
   it "Returns Just 128 bit AES.Key from a list of 16 Word8's" $
-    show (fromJust (makeKey key128)) `shouldBe` concatMap (printf "%02x") key128
+    show (fromJust (make key128) :: Key) `shouldBe` concatMap (printf "%02x") key128
   it "Returns a Nothing AES.Key from a list of 15 Word8's" $
-    makeKey (init key128) `shouldBe` Nothing
+    (make (init key128) :: Maybe Key) `shouldBe` Nothing
   it "Returns a Nothing AES.Key from a list of 17 Word8's" $
-    makeKey (key128 ++ [0]) `shouldBe` Nothing
+    (make (key128 ++ [0]) :: Maybe Key) `shouldBe` Nothing
   it "Returns Just 192 bit AES.Key from a list of 24 Word8's" $
-    show (fromJust (makeKey key192)) `shouldBe` concatMap (printf "%02x") key192
+    show (fromJust (make key192) :: Key) `shouldBe` concatMap (printf "%02x") key192
   it "Returns a Nothing AES.Key from a list of 23 Word8's" $
-    makeKey (init key192) `shouldBe` Nothing
+    (make (init key192) :: Maybe Key) `shouldBe` Nothing
   it "Returns a Nothing AES.Key from a list of 25 Word8's" $
-    makeKey (key192 ++ [0]) `shouldBe` Nothing
+    (make (key192 ++ [0]) :: Maybe Key) `shouldBe` Nothing
   it "Returns Just 256 bit AES.Key from a list of 32 Word8's" $
-    show (fromJust (makeKey key256)) `shouldBe` concatMap (printf "%02x") key256
+    show (fromJust (make key256) :: Key) `shouldBe` concatMap (printf "%02x") key256
   it "Returns a Nothing AES.Key from a list of 31 Word8's" $
-    makeKey (init key256) `shouldBe` Nothing
+    (make (init key256) :: Maybe Key) `shouldBe` Nothing
   it "Returns a Nothing AES.Key from a list of 33 Word8's" $
-    makeKey (key256 ++ [0]) `shouldBe` Nothing
+    (make (key256 ++ [0]) :: Maybe Key) `shouldBe` Nothing
 
 showKeySpec :: Spec
 showKeySpec = describe "showKey" $ do
   it "Returns a String representation of a 128 bit AES.Key" $
-    show (fromJust (makeKey key128)) `shouldBe` "000102030405060708090a0b0c0d0e0f"
+    show (fromJust (make key128) :: Key) `shouldBe` "000102030405060708090a0b0c0d0e0f"
   it "Returns a String representation of a 192 bit AES.Key" $
-    show (fromJust (makeKey key192)) `shouldBe` "000102030405060708090a0b0c0d0e0f1011121314151617"
+    show (fromJust (make key192) :: Key) `shouldBe` "000102030405060708090a0b0c0d0e0f1011121314151617"
   it "Returns a String representation of a 256 bit AES.Key" $
-    show (fromJust (makeKey key256)) `shouldBe` "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    show (fromJust (make key256) :: Key) `shouldBe` "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 
 ---- Block data type supporting function specs -------------------------------------------------------------------------
 
 makeBlockSpec :: Spec
 makeBlockSpec = describe "makeBlock" $ do
   it "Returns Just AES.Block bit from a list of 16 Word8's" $
-    show (fromJust (makeBlock plainText)) `shouldBe` concatMap (printf "%02x") plainText
+    show (fromJust (make plainText) :: Block) `shouldBe` concatMap (printf "%02x") plainText
   it "Returns a Nothing AES.Block from a list of 15 Word8's" $
-    makeBlock (init plainText) `shouldBe` Nothing
+    (make (init plainText) :: Maybe Block) `shouldBe` Nothing
   it "Returns a Nothing AES.Block from a list of 17 Word8's" $
-    makeBlock (plainText ++ [0]) `shouldBe` Nothing
+    (make (plainText ++ [0]) :: Maybe Block) `shouldBe` Nothing
 
 showBlockSpec :: Spec
 showBlockSpec = describe "showBlock" $ do
   it "Returns a String representation of a 128 bit AES.Block" $
-    show (fromJust (makeBlock plainText)) `shouldBe` "00112233445566778899aabbccddeeff"
+    show (fromJust (make plainText) :: Block) `shouldBe` "00112233445566778899aabbccddeeff"
 
 ---- cipher function specs ---------------------------------------------------------------------------------------------
 
 cipherSpec :: Spec
 cipherSpec = describe "cipher" $ do
   it "Encrypts plain text with a 128 bit AES.Key" $
-    cipher (fromJust (makeKey key128)) (fromJust (makeBlock plainText)) `shouldBe` cipherText128
+    cipher (fromJust (make key128)) (fromJust (make plainText)) `shouldBe` cipherText128
   it "Encrypts plain text with a 192 bit AES.Key" $
-    cipher (fromJust (makeKey key192)) (fromJust (makeBlock plainText)) `shouldBe` cipherText192
+    cipher (fromJust (make key192)) (fromJust (make plainText)) `shouldBe` cipherText192
   it "Encrypts plain text with a 256 bit AES.Key" $
-    cipher (fromJust (makeKey key256)) (fromJust (makeBlock plainText)) `shouldBe` cipherText256
+    cipher (fromJust (make key256)) (fromJust (make plainText)) `shouldBe` cipherText256
 
 invCipherSpec :: Spec
 invCipherSpec = describe "invCipher" $ do
   it "Decrypts cipher text with a 128 bit AES.Key" $
-    invCipher (fromJust (makeKey key128)) (fromJust (makeBlock cipherText128)) `shouldBe` plainText
+    invCipher (fromJust (make key128)) (fromJust (make cipherText128)) `shouldBe` plainText
   it "Decrypts cipher text with a 192 bit AES.Key" $
-    invCipher (fromJust (makeKey key192)) (fromJust (makeBlock cipherText192)) `shouldBe` plainText
+    invCipher (fromJust (make key192)) (fromJust (make cipherText192)) `shouldBe` plainText
   it "Decrypts cipher text with a 256 bit AES.Key" $
-    invCipher (fromJust (makeKey key256)) (fromJust (makeBlock cipherText256)) `shouldBe` plainText
+    invCipher (fromJust (make key256)) (fromJust (make cipherText256)) `shouldBe` plainText
 
 eqInvCipherSpec :: Spec
 eqInvCipherSpec = describe "eqInvCipher" $ do
   it "Decrypts cipher text with a 128 bit AES.Key using the equivalent inverse cipher" $
-    eqInvCipher (fromJust (makeKey key128)) (fromJust (makeBlock cipherText128)) `shouldBe` plainText
+    eqInvCipher (fromJust (make key128)) (fromJust (make cipherText128)) `shouldBe` plainText
   it "Decrypts cipher text with a 192 bit AES.Key using the equivalent inverse cipher" $
-    eqInvCipher (fromJust (makeKey key192)) (fromJust (makeBlock cipherText192)) `shouldBe` plainText
+    eqInvCipher (fromJust (make key192)) (fromJust (make cipherText192)) `shouldBe` plainText
   it "Decrypts cipher text with a 256 bit AES.Key using the equivalent inverse cipher" $
-    eqInvCipher (fromJust (makeKey key256)) (fromJust (makeBlock cipherText256)) `shouldBe` plainText
+    eqInvCipher (fromJust (make key256)) (fromJust (make cipherText256)) `shouldBe` plainText
 
 ---- debug cipher function specs ---------------------------------------------------------------------------------------
 
 cipherDebugSpec :: Spec
 cipherDebugSpec = describe "cipherDebug" $ do
   it "Encrypts plain text with a 128 bit AES.Key, while displaying debug information" $
-    cipherDebug (fromJust (makeKey key128)) (fromJust (makeBlock plainText)) `shouldBe` cipherDebug128BitTestStr
+    cipherDebug (fromJust (make key128)) (fromJust (make plainText)) `shouldBe` cipherDebug128BitTestStr
   it "Encrypts plain text with a 192 bit AES.Key, while displaying debug information" $
-    cipherDebug (fromJust (makeKey key192)) (fromJust (makeBlock plainText)) `shouldBe` cipherDebug192BitTestStr
+    cipherDebug (fromJust (make key192)) (fromJust (make plainText)) `shouldBe` cipherDebug192BitTestStr
   it "Encrypts plain text with a 256 bit AES.Key, while displaying debug information" $
-    cipherDebug (fromJust (makeKey key256)) (fromJust (makeBlock plainText)) `shouldBe` cipherDebug256BitTestStr
+    cipherDebug (fromJust (make key256)) (fromJust (make plainText)) `shouldBe` cipherDebug256BitTestStr
 
 invCipherDebugSpec :: Spec
 invCipherDebugSpec = describe "invCipherDebug" $ do
   it "Decrypts cipher text with a 128 bit AES.Key, while displaying debug information" $
-    invCipherDebug (fromJust (makeKey key128)) (fromJust (makeBlock cipherText128)) `shouldBe` invCipherDebug128BitTestStr
+    invCipherDebug (fromJust (make key128)) (fromJust (make cipherText128)) `shouldBe` invCipherDebug128BitTestStr
   it "Decrypts cipher text with a 192 bit AES.Key, while displaying debug information" $
-    invCipherDebug (fromJust (makeKey key192)) (fromJust (makeBlock cipherText192)) `shouldBe` invCipherDebug192BitTestStr
+    invCipherDebug (fromJust (make key192)) (fromJust (make cipherText192)) `shouldBe` invCipherDebug192BitTestStr
   it "Decrypts cipher text with a 256 bit AES.Key, while displaying debug information" $
-    invCipherDebug (fromJust (makeKey key256)) (fromJust (makeBlock cipherText256)) `shouldBe` invCipherDebug256BitTestStr
+    invCipherDebug (fromJust (make key256)) (fromJust (make cipherText256)) `shouldBe` invCipherDebug256BitTestStr
 
 eqInvCipherDebugSpec :: Spec
 eqInvCipherDebugSpec = describe "eqInvCipherDebug" $ do
   it "Decrypts cipher text with a 128 bit AES.Key using the equivalent inverse cipher, while displaying debug information" $
-    eqInvCipherDebug (fromJust (makeKey key128)) (fromJust (makeBlock cipherText128)) `shouldBe` eqInvCipherDebug128BitTestStr
+    eqInvCipherDebug (fromJust (make key128)) (fromJust (make cipherText128)) `shouldBe` eqInvCipherDebug128BitTestStr
   it "Decrypts cipher text with a 192 bit AES.Key using the equivalent inverse cipher, while displaying debug information" $
-    eqInvCipherDebug (fromJust (makeKey key192)) (fromJust (makeBlock cipherText192)) `shouldBe` eqInvCipherDebug192BitTestStr
+    eqInvCipherDebug (fromJust (make key192)) (fromJust (make cipherText192)) `shouldBe` eqInvCipherDebug192BitTestStr
   it "Decrypts cipher text with a 256 bit AES.Key using the equivalent inverse cipher, while displaying debug information" $
-    eqInvCipherDebug (fromJust (makeKey key256)) (fromJust (makeBlock cipherText256)) `shouldBe` eqInvCipherDebug256BitTestStr
+    eqInvCipherDebug (fromJust (make key256)) (fromJust (make cipherText256)) `shouldBe` eqInvCipherDebug256BitTestStr
 
 ---- main runs all tests -----------------------------------------------------------------------------------------------
 
@@ -131,49 +131,175 @@ main = hspec $ do
 ---- testing constants -------------------------------------------------------------------------------------------------
 
 plainText :: [Word8]
-plainText = [
-  0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
-  0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff
-  ] :: [Word8]
+plainText =
+  [ 0x00,
+    0x11,
+    0x22,
+    0x33,
+    0x44,
+    0x55,
+    0x66,
+    0x77,
+    0x88,
+    0x99,
+    0xaa,
+    0xbb,
+    0xcc,
+    0xdd,
+    0xee,
+    0xff
+  ] ::
+    [Word8]
 
 key128 :: [Word8]
-key128 = [
-  0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-  0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f
-  ] :: [Word8]
+key128 =
+  [ 0x00,
+    0x01,
+    0x02,
+    0x03,
+    0x04,
+    0x05,
+    0x06,
+    0x07,
+    0x08,
+    0x09,
+    0x0a,
+    0x0b,
+    0x0c,
+    0x0d,
+    0x0e,
+    0x0f
+  ] ::
+    [Word8]
 
 key192 :: [Word8]
-key192 = [
-  0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-  0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-  0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17
-  ] :: [Word8]
+key192 =
+  [ 0x00,
+    0x01,
+    0x02,
+    0x03,
+    0x04,
+    0x05,
+    0x06,
+    0x07,
+    0x08,
+    0x09,
+    0x0a,
+    0x0b,
+    0x0c,
+    0x0d,
+    0x0e,
+    0x0f,
+    0x10,
+    0x11,
+    0x12,
+    0x13,
+    0x14,
+    0x15,
+    0x16,
+    0x17
+  ] ::
+    [Word8]
 
 key256 :: [Word8]
-key256 = [
-  0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-  0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-  0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-  0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f
-  ] :: [Word8]
+key256 =
+  [ 0x00,
+    0x01,
+    0x02,
+    0x03,
+    0x04,
+    0x05,
+    0x06,
+    0x07,
+    0x08,
+    0x09,
+    0x0a,
+    0x0b,
+    0x0c,
+    0x0d,
+    0x0e,
+    0x0f,
+    0x10,
+    0x11,
+    0x12,
+    0x13,
+    0x14,
+    0x15,
+    0x16,
+    0x17,
+    0x18,
+    0x19,
+    0x1a,
+    0x1b,
+    0x1c,
+    0x1d,
+    0x1e,
+    0x1f
+  ] ::
+    [Word8]
 
 cipherText128 :: [Word8]
-cipherText128 = [
-  0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b, 0x04, 0x30,
-  0xd8, 0xcd, 0xb7, 0x80, 0x70, 0xb4, 0xc5, 0x5a
-  ] :: [Word8]
+cipherText128 =
+  [ 0x69,
+    0xc4,
+    0xe0,
+    0xd8,
+    0x6a,
+    0x7b,
+    0x04,
+    0x30,
+    0xd8,
+    0xcd,
+    0xb7,
+    0x80,
+    0x70,
+    0xb4,
+    0xc5,
+    0x5a
+  ] ::
+    [Word8]
 
 cipherText192 :: [Word8]
-cipherText192 = [
-  0xdd, 0xa9, 0x7c, 0xa4, 0x86, 0x4c, 0xdf, 0xe0,
-  0x6e, 0xaf, 0x70, 0xa0, 0xec, 0x0d, 0x71, 0x91
-  ] :: [Word8]
+cipherText192 =
+  [ 0xdd,
+    0xa9,
+    0x7c,
+    0xa4,
+    0x86,
+    0x4c,
+    0xdf,
+    0xe0,
+    0x6e,
+    0xaf,
+    0x70,
+    0xa0,
+    0xec,
+    0x0d,
+    0x71,
+    0x91
+  ] ::
+    [Word8]
 
 cipherText256 :: [Word8]
-cipherText256 = [
-  0x8e, 0xa2, 0xb7, 0xca, 0x51, 0x67, 0x45, 0xbf,
-  0xea, 0xfc, 0x49, 0x90, 0x4b, 0x49, 0x60, 0x89
-  ] :: [Word8]
+cipherText256 =
+  [ 0x8e,
+    0xa2,
+    0xb7,
+    0xca,
+    0x51,
+    0x67,
+    0x45,
+    0xbf,
+    0xea,
+    0xfc,
+    0x49,
+    0x90,
+    0x4b,
+    0x49,
+    0x60,
+    0x89
+  ] ::
+    [Word8]
 
 cipherDebug128BitTestStr :: String
 cipherDebug128BitTestStr =

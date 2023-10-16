@@ -1,8 +1,7 @@
 module AES
   ( Key,
-    makeKey,
     Block,
-    makeBlock,
+    CryptPrim (..),
     cipher,
     invCipher,
     eqInvCipher,
@@ -12,10 +11,12 @@ module AES
   )
 where
 
-import Data.Bits (setBit, shift, shiftR, testBit, xor)
+-- TODO do I really need shift, shiftL, AND shiftR
+import Data.Bits (shift, shiftR, shiftL, testBit, xor)
 import Data.List (transpose, unfoldr)
 import Data.Word (Word64, Word8)
 import Text.Printf (printf)
+import Data.Maybe (mapMaybe)
 
 ---- AES Magic Constants -------------------------------------------------------
 
@@ -59,24 +60,39 @@ invSubBox = [
   0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
   ] :: [Word8]
 
-rcon :: [[Word8]]
+rcon :: [KeyWord]
 rcon =
-  [ [0x01, 0x00, 0x00, 0x00],
-    [0x02, 0x00, 0x00, 0x00],
-    [0x04, 0x00, 0x00, 0x00],
-    [0x08, 0x00, 0x00, 0x00],
-    [0x10, 0x00, 0x00, 0x00],
-    [0x20, 0x00, 0x00, 0x00],
-    [0x40, 0x00, 0x00, 0x00],
-    [0x80, 0x00, 0x00, 0x00],
-    [0x1b, 0x00, 0x00, 0x00],
-    [0x36, 0x00, 0x00, 0x00]
-  ] :: [[Word8]]
+  [ KeyWord 0x01 0x00 0x00 0x00,
+    KeyWord 0x02 0x00 0x00 0x00,
+    KeyWord 0x04 0x00 0x00 0x00,
+    KeyWord 0x08 0x00 0x00 0x00,
+    KeyWord 0x10 0x00 0x00 0x00,
+    KeyWord 0x20 0x00 0x00 0x00,
+    KeyWord 0x40 0x00 0x00 0x00,
+    KeyWord 0x80 0x00 0x00 0x00,
+    KeyWord 0x1b 0x00 0x00 0x00,
+    KeyWord 0x36 0x00 0x00 0x00
+  ]
 
 ---- Key data type, Block data type and supporting functions -------------------
 
-class CryptPrim a where
+-- TODO some of the stuff in here should probs be renamed
+class (Eq a, Show a) => CryptPrim a where
   makeBytes :: a -> [Word8]
+  make :: [Word8] -> Maybe a
+
+data KeyWord = KeyWord Word8 Word8 Word8 Word8 deriving (Eq)
+
+instance CryptPrim KeyWord where
+  makeBytes (KeyWord a b c d) = [a, b, c, d]
+  make [w0, w1, w2, w3] = Just $ KeyWord w0 w1 w2 w3
+  make _ = Nothing
+
+instance Show KeyWord where
+  show (KeyWord w0 w1 w2 w3) = printf "%02x%02x%02x%02x" w0 w1 w2 w3
+
+makeKeyWords :: Key -> [KeyWord]
+makeKeyWords = mapMaybe make . groupsOf 4 . makeBytes
 
 data Key
   = Key128 Word64 Word64
@@ -96,29 +112,34 @@ instance CryptPrim Key where
         Key128 w0 w1 -> [w0, w1]
         Key192 w0 w1 w2 -> [w0, w1, w2]
         Key256 w0 w1 w2 w3 -> [w0, w1, w2, w3]
+      unPkW64 :: Word64 -> [Word8]
+      unPkW64 x = [fromIntegral $ shiftR x b | b <- [56, 48 .. 0]]
 
-makeKey :: [Word8] -> Maybe Key
-makeKey l
-  | length l == 16 = Just $ Key128 (head ls) (ls !! 1)
-  | length l == 24 = Just $ Key192 (head ls) (ls !! 1) (ls !! 2)
-  | length l == 32 = Just $ Key256 (head ls) (ls !! 1) (ls !! 2) (ls !! 3)
-  | otherwise = Nothing
-  where
-    ls = map pkW64 $ groupsOf 8 l
+  make l
+    | length l == 16 = Just $ Key128 (head ls) (ls !! 1)
+    | length l == 24 = Just $ Key192 (head ls) (ls !! 1) (ls !! 2)
+    | length l == 32 = Just $ Key256 (head ls) (ls !! 1) (ls !! 2) (ls !! 3)
+    | otherwise = Nothing
+    where
+      ls = map pkW64 $ groupsOf 8 l
+      pkW64 :: [Word8] -> Word64
+      pkW64 ws = sum $ zipWith shiftL (map fromIntegral ws) [56, 48 .. 0]
 
-data Block = Block Word64 Word64 deriving (Eq)
+data Block = Block KeyWord KeyWord KeyWord KeyWord deriving (Eq)
 
 instance Show Block where
-  show (Block w0 w1) = printf "%016x%016x" w0 w1
+  show (Block w0 w1 w2 w3) = concatMap show [w0, w1, w2, w3]
 
 instance CryptPrim Block where
-  makeBytes (Block w0 w1) = concatMap unPkW64 [w0, w1]
+  makeBytes (Block w0 w1 w2 w3) = concatMap makeBytes [w0, w1, w2, w3]
 
-makeBlock :: [Word8] -> Maybe Block
-makeBlock l
-  | length l == 16 = Just $ Block (pkW64 (take 8 l)) (pkW64 (drop 8 l))
-  | otherwise = Nothing
-
+  make [w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15] =
+    Just $ Block
+      (KeyWord w0 w1 w2 w3)
+      (KeyWord w4 w5 w6 w7)
+      (KeyWord w8 w9 w10 w11)
+      (KeyWord w12 w13 w14 w15)
+  make _ = Nothing
 
 ---- Galois Field functions ----------------------------------------------------
 
@@ -148,59 +169,110 @@ subByte = (subBox !!) . fromIntegral
 invSubByte :: Word8 -> Word8
 invSubByte = (invSubBox !!) . fromIntegral
 
+-- TODO should work on blocks instead of [word8]
 mixColumnsGen :: [Word8] -> [Word8] -> [Word8]
 mixColumnsGen offsets = concatMap mixCol . groupsOf 4
   where
     magicNums = take 4 $ iterate (shiftRow 3) offsets
     mixCol col = map (foldl ffAdd 0 . zipWith ffMultiply col) magicNums
 
+-- TODO should work on blocks instead of [word8]
 mixColumns :: [Word8] -> [Word8]
 mixColumns = mixColumnsGen [0x2, 0x3, 0x1, 0x1]
 
+-- TODO should work on blocks instead of [word8]
 invMixColumns :: [Word8] -> [Word8]
 invMixColumns = mixColumnsGen [0xe, 0xb, 0xd, 0x9]
 
+-- TODO should work on KeyWords instead of [Word8]
 shiftRow :: Int -> [Word8] -> [Word8]
 shiftRow = drop <> take
 
-rotWord :: [Word8] -> [Word8]
-rotWord = shiftRow 1
-
+-- TODO should work on KeyWords instead of [Word8]
 shiftRowsGen :: [Int] -> [Word8] -> [Word8]
 shiftRowsGen offsets state = concat . transpose $
   zipWith shiftRow offsets $ transpose $ groupsOf 4 state
 
+-- TODO should work on KeyWords instead of [Word8]
 shiftRows :: [Word8] -> [Word8]
 shiftRows = shiftRowsGen [0, 1, 2, 3]
 
+-- TODO should work on KeyWords instead of [Word8]
 invShiftRows :: [Word8] -> [Word8]
 invShiftRows = shiftRowsGen [0, 3, 2, 1]
 
 ---- Key expansion functions ---------------------------------------------------
 
-keyExpansion :: Key -> [[Word8]]
-keyExpansion key = keyExpansionRec (groupsOf 4 $ makeBytes key) nk nk
+subKeyWord :: KeyWord -> KeyWord
+subKeyWord (KeyWord a b c d) = KeyWord (subByte a) (subByte b) (subByte c) (subByte d)
+
+rotKeyWord :: KeyWord -> KeyWord
+rotKeyWord (KeyWord a b c d) = KeyWord b c d a
+
+ffAddKeyWord :: KeyWord -> KeyWord -> KeyWord
+ffAddKeyWord (KeyWord a0 b0 c0 d0) (KeyWord a1 b1 c1 d1) =
+  KeyWord (ffAdd a0 a1) (ffAdd b0 b1) (ffAdd c0 c1) (ffAdd d0 d1)
+
+makeKeyBlock :: [KeyWord] -> Block
+makeKeyBlock [w0, w1, w2, w3] = Block w0 w1 w2 w3
+makeKeyBlock _ = undefined
+
+keyExpansionNew :: Key -> [KeyWord]
+keyExpansionNew key = keyExpansionRecNew (makeKeyWords key) nk
   where
     nk = case key of
       Key128 {} -> 4
       Key192 {} -> 6
       Key256 {} -> 8
 
-keyExpansionRec :: [[Word8]] -> Int -> Int -> [[Word8]]
-keyExpansionRec key 4 44 = key
-keyExpansionRec key 6 52 = key
-keyExpansionRec key 8 60 = key
-keyExpansionRec w nk depth = keyExpansionRec (w ++ [newByte]) nk (depth + 1)
+keyExpansionRecNew :: [KeyWord] -> Int -> [KeyWord]
+keyExpansionRecNew w nk
+  | length w == 4 * nk + 28 = w
+  | otherwise = keyExpansionRecNew (w ++ [newByte]) nk
   where
-    firstKey = w !! (depth - nk)
-    lastKey = w !! (depth - 1)
-    thisRcon = rcon !! ((depth `div` nk) - 1)
+    lastKey = last w
+    thisRcon = rcon !! ((d `div` nk) - 1)
     newByte
-      | (depth `mod` nk) == 0 = foldl (zipWith ffAdd) (map subByte $ rotWord lastKey) [thisRcon, firstKey]
-      | (nk > 6) && ((depth `mod` nk) == 4) = zipWith ffAdd (map subByte lastKey) firstKey
-      | otherwise = zipWith ffAdd lastKey firstKey
+      | (d `mod` nk) == 0 = ffAddKeyWord (addFKey thisRcon) $ subKeyWord $ rotKeyWord lastKey
+      | (nk > 6) && ((d `mod` nk) == 4) = addFKey (subKeyWord lastKey)
+      | otherwise = addFKey lastKey
+    addFKey = ffAddKeyWord $ w !! (d - nk)
+    d = length w
+
+keyExpansion :: Key -> [[Word8]]
+keyExpansion = map makeBytes . keyExpansionNew
+
+-- keyExpansion key = keyExpansionRec (groupsOf 4 $ makeBytes key) nk nk
+  -- where
+    -- nk = case key of
+      -- Key128 {} -> 4
+      -- Key192 {} -> 6
+      -- Key256 {} -> 8
+
+-- keyExpansionRec :: [[Word8]] -> Int -> Int -> [[Word8]]
+-- keyExpansionRec key 4 44 = key
+-- keyExpansionRec key 6 52 = key
+-- keyExpansionRec key 8 60 = key
+-- keyExpansionRec w nk depth = keyExpansionRec (w ++ [newByte]) nk (depth + 1)
+--   where
+--     firstKey = w !! (depth - nk)
+--     lastKey = w !! (depth - 1)
+--     thisRcon = rcon !! ((depth `div` nk) - 1)
+--     newByte
+--       | (depth `mod` nk) == 0 = foldl (zipWith ffAdd) (map subByte $ rotWord lastKey) [thisRcon, firstKey]
+--       | (nk > 6) && ((depth `mod` nk) == 4) = zipWith ffAdd (map subByte lastKey) firstKey
+--       | otherwise = zipWith ffAdd lastKey firstKey
+
+-- keyExpansionEICNew :: Key -> [KeyWord]
+-- keyExpansionEICNew key = f: m ++ [e]
+--   where
+--     fme = keyExpansionNew key
+--     f = head fme
+--     e = last fme
+--     m = map (makeOneKeyWord . invMixColumns . makeBytes) $ init $ tail fme
 
 keyExpansionEIC :: Key -> [[Word8]]
+-- keyExpansionEIC = map makeBytes . keyExpansionEICNew
 keyExpansionEIC key = f ++ map invMixColumns m ++ e
   where
     fme = keyExpansion key
@@ -210,12 +282,70 @@ keyExpansionEIC key = f ++ map invMixColumns m ++ e
 addRoundKey :: [Word8] -> [[Word8]] -> Int -> [Word8]
 addRoundKey state key roundNum = zipWith ffAdd state roundKey
   where
-    roundKey = drop (roundNum * 16) (concat key)
+    -- roundKey = drop (roundNum * 16) (concat key)
+    roundKey = getRoundKey key !! roundNum
+
+-- addRoundKeyNew :: [Word8] -> [Block] -> Int -> [Word8]
+-- addRoundKeyNew state key roundNum = zipWith ffAdd state roundKey
+--   where
+--     -- roundKey = drop (roundNum * 16) (concat key)
+--     roundKey = makeBytes $ key !! roundNum
+
 
 ---- AES cipher ----------------------------------------------------------------
 
+makeRoundKeys :: [Word8] -> [[Word8]] -> [[Word8]]
+makeRoundKeys state key = map (zipWith ffAdd state) a
+  where
+    roundKey roundNum = drop (roundNum * 16) (concat key)
+    a = map roundKey [0..]
+
+-- cipher :: Key -> Block -> [Word8]
+-- cipher key blk = foldl (cipherNotRec expKey) roundKey [0 .. ni]
+--   where
+--     expKey = keyExpansion key
+--     roundKey = addRoundKey (makeBytes blk) expKey 0
+--     ni = case key of
+--       Key128 {} -> 9
+--       Key192 {} -> 11
+--       Key256 {} -> 13
+--
+-- cipherNotRec :: [[Word8]] -> [Word8] -> Int -> [Word8]
+-- cipherNotRec key state depth
+--   | ((length key `div` 4) - 2) == depth = addRoundKey s_row key (depth + 1)
+--   | otherwise = addRoundKey m_col key (depth + 1)
+--   where
+--     s_box = map subByte state
+--     s_row = shiftRows s_box
+--     m_col = mixColumns s_row
+
+getRoundKey :: [[Word8]] -> [[Word8]]
+getRoundKey key = map (flip drop $ concat key) [0, 16 ..]
+
 cipher :: Key -> Block -> [Word8]
-cipher key blk = cipherRec roundKey expKey 0
+cipher key blk = lst
+  where
+    state = foldl (cipherNotRec expKey) roundKey [0 .. ni]
+    expKey = keyExpansion key
+    roundKey = addRoundKey (makeBytes blk) expKey 0
+    ni = case key of
+      Key128 {} -> 8
+      Key192 {} -> 10
+      Key256 {} -> 12
+
+    s_box = map subByte state
+    s_row = shiftRows s_box
+    lst = addRoundKey s_row expKey (ni + 2)
+
+cipherNotRec :: [[Word8]] -> [Word8] -> Int -> [Word8]
+cipherNotRec key state depth = addRoundKey m_col key (depth + 1)
+  where
+    s_box = map subByte state
+    s_row = shiftRows s_box
+    m_col = mixColumns s_row
+
+cipherOld :: Key -> Block -> [Word8]
+cipherOld key blk = cipherRec roundKey expKey 0
   where
     expKey = keyExpansion key
     roundKey = addRoundKey (makeBytes blk) expKey 0
@@ -375,14 +505,6 @@ eqInvCipherDebugRec state key depth
 
 ---- Helper functions ----------------------------------------------------------
 
-pkW64 :: [Word8] -> Word64
-pkW64 l =
-  foldl setBit 0 (map snd $ filter fst $ zip bits [63, 62 .. 0])
-  where
-    bits = concatMap (\x -> map (testBit x) [7, 6 .. 0]) l
-
-unPkW64 :: Word64 -> [Word8]
-unPkW64 x = [fromIntegral $ shiftR x b | b <- [56, 48 .. 0]]
 
 groupsOf :: Int -> [a] -> [[a]]
 groupsOf n = takeWhile (not . null) . unfoldr (Just . splitAt n)
